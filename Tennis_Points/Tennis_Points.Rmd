@@ -1,0 +1,183 @@
+---
+title: "Tennis_Points"
+author: "Thomas Young"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(zoo) 
+library(patchwork)
+library(corrplot)
+```
+
+## Data: https://www.tennisabstract.com/charting/20250409-M-Monte_Carlo_Masters-R32-Francisco_Cerundolo-Carlos_Alcaraz.html  
+
+```{r}
+tennis_data <- read.table("STATS_Alcaraz_Cerundelo.txt", header = TRUE, sep = "\t",
+                          stringsAsFactors = FALSE, fill = TRUE)  
+```
+
+# Format Table to be easy to work with 
+
+```{r}
+# Remove rows with "SET" in the STATS.OVERVIEW column
+tennis_data_formatted <- tennis_data[!grepl("SET", tennis_data$STATS.OVERVIEW), ]
+
+# Convert percentage columns to numeric
+percentage_cols <- c("A.", "DF.", "X1stIn", "X1st.", "X2nd.", "RPW.")
+tennis_data_formatted[percentage_cols] <- lapply(tennis_data_formatted[percentage_cols],
+                                                 function(x) as.numeric(gsub("%", "", x)) / 100)
+
+# Extract FH/BH values from Winners and UFE columns
+tennis_data_formatted$Winners_FH <- as.numeric(gsub(".*\\((\\d+)/\\d+\\).*", 
+                                                    "\\1", tennis_data_formatted$Winners..FH.BH.))
+tennis_data_formatted$Winners_BH <- as.numeric(gsub(".*\\(\\d+/(\\d+)\\).*", "\\1",
+                                                    tennis_data_formatted$Winners..FH.BH.))
+tennis_data_formatted$UFE_FH <- as.numeric(gsub(".*\\((\\d+)/\\d+\\).*", "\\1",
+                                                tennis_data_formatted$UFE..FH.BH.))
+tennis_data_formatted$UFE_BH <- as.numeric(gsub(".*\\(\\d+/(\\d+)\\).*", "\\1",
+                                                tennis_data_formatted$UFE..FH.BH.))
+
+tennis_data_formatted <- tennis_data_formatted[, 
+                                               !names(tennis_data_formatted) %in%
+                                                 c("Winners..FH.BH.", "UFE..FH.BH.")]
+
+colnames(tennis_data_formatted) <- c("Player", "A_pct", "DF_pct", "FirstIn", "First_pct",
+                                     "Second_pct", "BPSaved", "RPW_pct", "Winners_FH",
+                                     "Winners_BH", "UFE_FH", "UFE_BH")
+```
+
+```{r}
+# Format table
+tennis_data_formatted$Set <- NA
+tennis_data_formatted$Set[1:2] <- "Overview"
+players_per_set <- 2
+
+for (i in 3:nrow(tennis_data_formatted)) {
+  tennis_data_formatted$Set[i] <- ceiling((i - 2) / players_per_set)
+}
+print(tennis_data_formatted)
+```
+
+# Define loop to create plots for visualizing momentum shifts 
+
+```{r}
+# Create an empty list to store the plots
+plot_list <- list()
+set_data <- tennis_data_formatted[tennis_data_formatted$Set != "Overview", ]
+stats_to_analyze <- c("First_pct", "Second_pct", "Winners_FH", "Winners_BH", 
+                      "UFE_FH", "UFE_BH", "RPW_pct")
+
+# Function to calculate rolling average
+calculate_rolling_avg <- function(x) {
+  rollapply(x, width = 3, FUN = mean, partial = TRUE, align = "center")}
+
+# Loop through stats, calculate rolling averages, create plots, and store them in the list
+for (stat in stats_to_analyze) {
+  set_data[, paste0(stat, "_rolling")] <- ave(set_data[, stat], set_data$Player, set_data$Set, FUN = calculate_rolling_avg)
+  
+  # Create plot for current stat with updated labels and title
+  plot <- ggplot(set_data, aes(x = Set, y = .data[[paste0(stat, "_rolling")]], 
+                               color = Player, group = Player)) + 
+    geom_line() +
+    geom_point() +
+    labs(title = paste("", 
+                       ifelse(stat == "First_pct", "1st Serve Percentage",
+                              ifelse(stat == "Second_pct", "1st Serve Percentage",
+                                     ifelse(stat == "Winners_FH", "Forehand Winners",
+                                            ifelse(stat == "Winners_BH", "Backhand Winners",
+                                                   ifelse(stat == "UFE_FH", "Forehand Unforced Errors",
+                                                          ifelse(stat == "UFE_BH", "Backhand Unforced Errors",
+                                                                 ifelse(stat == "RPW_pct", "Return Points Won", stat)))))))),
+         x = "Set Number",
+         y = paste(
+           ifelse(stat == "First_pct", "Percentage",
+                  ifelse(stat == "Second_pct", "Percentage",
+                         ifelse(stat == "Winners_FH", "Stroke Winners",
+                                ifelse(stat == "Winners_BH", "Stroke Winners",
+                                       ifelse(stat == "UFE_FH", "Stroke Errors",
+                                              ifelse(stat == "UFE_BH", "Stroke Errors",
+                                                     ifelse(stat == "RPW_pct", "Percentage", stat)))))))), 
+         "(Rolling Average)") +
+    theme_minimal()
+  
+  # Store the plot in the list
+  plot_list[[stat]] <- plot 
+}
+```
+
+# Use Patchwork to combine plots
+
+```{r}
+# Create the first combined plot 
+combined_plot1 <- (plot_list[[1]] + plot_list[[2]] + plot_list[[7]] +
+                     plot_layout(guides = "collect") & theme(legend.position = "bottom")) +
+  plot_annotation(title = element_text("Moving Averages of Serve Stats"),
+                  theme = theme(plot.title = element_text(size = 14)))
+
+# Create the second combined plot 
+combined_plot2 <- (plot_list[[4]] + plot_list[[5]] + plot_list[[6]] + plot_list[[3]] +
+                     plot_layout(guides = "collect") & theme(legend.position = "bottom")) +
+  plot_annotation(title = element_text("Moving Averages of Ground Strokes"),
+                  theme = theme(plot.title = element_text(size = 14)))
+
+combined_plot1
+combined_plot2
+```
+
+# Create Corrleation Matrix to see which variables are important
+
+```{r}
+rolling_avg_cols <- paste0(stats_to_analyze, "_rolling")
+correlation_data <- set_data[, rolling_avg_cols]
+correlation_matrix <- cor(correlation_data, use = "pairwise.complete.obs") 
+
+# Calculate p-values
+p_values <- matrix(NA, nrow = ncol(correlation_matrix), ncol = ncol(correlation_matrix))
+for (i in 1:ncol(correlation_matrix)) {
+  for (j in 1:ncol(correlation_matrix)) {
+    test_result <- cor.test(correlation_data[, i], correlation_data[, j])
+    p_values[i, j] <- test_result$p.value
+  }
+}
+
+rownames(p_values) <- colnames(correlation_matrix)
+colnames(p_values) <- colnames(correlation_matrix)
+
+# Visualize entire correlation matrix
+corrplot(correlation_matrix, method = "color", type = "upper",
+         order = "hclust", addCoef.col = "black", tl.col = "black", tl.srt = 45,
+         title = "Correlation Matrix of Rolling Averages", mar = c(0, 0, 2, 0)) 
+# Add this line to see only p values 
+# mar = c(0, 0, 2, 0), p.mat = p_values, sig.level = 0.05, insig = "blank")
+```
+
+
+# Interpretation 
+
+- This script can be used to identify momentum changes in serve and ground stroke for player data 
+
+Strong Positive Correlations and statistically significant:
+
+- First Serve Percentage (First_pct_rolling) and Second Serve Percentage (Second_pct_rolling): (0.88) 
+- This suggests that players who tend to have a high first serve percentage also tend to have a high second serve percentage. This indicates a general consistency in serving performance.
+
+- Second Serve Percentage (Second_pct_rolling) and Forehand Winners (Winners_FH_rolling): (0.81) This correlation might seem counterintuitive, but it could indicate that when a player is hitting their second serve well, they might be setting up more opportunities to dictate the point and hit forehand winners.
+
+- Forehand Winners (Winners_FH_rolling) and Forehand Unforced Errors (UFE_FH_rolling): (0.89) This is a common observation in tennis. Players who go for more winners on their forehand are also more likely to make unforced errors on that side. It's a trade-off between aggression and consistency.
+
+Moderate Positive Correlations:
+
+- First Serve Percentage (First_pct_rolling) and Forehand/Backhand Winners (Winners_FH/BH_rolling): (0.50, 0.55) This suggests a moderate relationship between first serve percentage and the ability to hit winners, indicating that a good first serve can create more opportunities for aggressive shots.
+
+- Return Points Won Percentage (RPW_pct_rolling) and Backhand Winners (Winners_BH_rolling): (0.56) This indicates that players who are effective at returning serve also tend to hit more winners on their backhand side.
+
+Strong Negative Correlations:
+
+- Return Points Won Percentage (RPW_pct_rolling) and Backhand Unforced Errors (UFE_BH_rolling): (-0.72) This makes intuitive sense. Players who make fewer unforced errors on their backhand tend to win more return points. It highlights the importance of consistency in returning serve.
+
+- First Serve Percentage (First_pct_rolling) and Backhand Unforced Errors (UFE_BH_rolling): (-0.40) This suggests a moderate negative relationship between first serve percentage and making unforced errors on the backhand side, indicating that a good first serve can put pressure on the opponent and reduce their consistency.
+
