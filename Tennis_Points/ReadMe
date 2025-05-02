@@ -1,1 +1,22 @@
-Match data cane be found at: https://www.tennisabstract.com/charting/20250409-M-Monte_Carlo_Masters-R32-Francisco_Cerundolo-Carlos_Alcaraz.html
+Match data can be found at: https://www.tennisabstract.com/charting/20250409-M-Monte_Carlo_Masters-R32-Francisco_Cerundolo-Carlos_Alcaraz.html
+
+Description of Upload:
+- Match between Francisco Cerundolo vs Carlos Alcaraz at the 2025 Monte Carlo Masters R32
+
+Purpose of Project:
+- Identification of momentum shifts and delved into the underlying details and complexities of player performance
+- The momentum shifts being analyzed were not just binary (one player winning or losing) but involved intricate variations in performance and game dynamics.
+- The analysis aimed to provide a clear and comprehensive understanding of these nuanced shifts to gain insights into the match and player strategies
+
+Metrics Evaluated: 
+- First_pct: First serve percentage (percentage of successful first serves)
+- Second_pct: Second serve percentage (percentage of successful second serves)
+- Winners_FH: Forehand winners (points won directly from a forehand shot)
+- Winners_BH: Backhand winners (points won directly from a backhand shot)
+- UFE_FH: Forehand unforced errors (errors made on a forehand shot without being forced by the opponent)
+- UFE_BH: Backhand unforced errors (errors made on a backhand shot without being forced by the opponent)
+- RPW_pct: Return points won percentage (percentage of points won when returning the opponent's serve)
+
+Packages Required: 
+- tidyverse, patchwork, zoo, corrplot
+- Avaliable as pdf if needed 
